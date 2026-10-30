@@ -59,7 +59,6 @@ static uint32_t hail_until_ms[2];
  * y0       : disarm byte-match */
 static uint8_t auto_seed[2][4];  static bool auto_hail[2];
 static uint8_t auto_match[2][8]; static uint8_t auto_resp[2][8]; static bool auto_chal[2];
-static uint8_t auto_zchal[2][8]; static bool auto_zseed[2];   /* Z<16hex>: rx 7E9 seed4 -> tx 7E1 chal8 */
 static uint32_t hail_last_us[2];
 static bool hail_pulse[2];     /* G mode: 300 ms storm / 300 ms silence so starved
                                 * higher-ID replies (7E9 seed, 7Fx telemetry) get air;
@@ -284,14 +283,6 @@ static void handle_line(int i) {
       if (strlen(s) != 9 || !parse_hex(s + 1, 8, &v)) { err(i); break; }
       auto_seed[i][0] = v >> 24; auto_seed[i][1] = v >> 16; auto_seed[i][2] = v >> 8; auto_seed[i][3] = v;
       auto_hail[i] = true; ok(i); break;
-    }
-    case 'B': {
-      uint32_t a, b;
-      if (s[1] == '0' && !s[2]) { auto_zseed[i] = false; ok(i); break; }
-      if (strlen(s) != 17 || !parse_hex(s + 1, 8, &a) || !parse_hex(s + 9, 8, &b)) { err(i); break; }
-      auto_zchal[i][0] = a >> 24; auto_zchal[i][1] = a >> 16; auto_zchal[i][2] = a >> 8; auto_zchal[i][3] = a;
-      auto_zchal[i][4] = b >> 24; auto_zchal[i][5] = b >> 16; auto_zchal[i][6] = b >> 8; auto_zchal[i][7] = b;
-      auto_zseed[i] = true; ok(i); break;
     }
     case 'y': {
       uint32_t a, b;
