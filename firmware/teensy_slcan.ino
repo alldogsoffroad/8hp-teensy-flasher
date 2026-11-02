@@ -81,7 +81,11 @@ static uint16_t       pwr_last_mv;
  * threshold/heartbeat scheme as the P feed line. */
 static const float    AM_DIV  = 0.6f;
 static const float    AM_SENS = 0.185f;   /* volts per amp */
-static const int16_t  AM_ZERO  = 118;     /* module offset, measured 2026-11-02 */
+/* Bench leads wired IP- -> supply (reads negative): sign flipped in software.
+ * AM_ZERO is ADDITIVE with the flipped formula: it absorbs the module's own
+ * zero-current offset (this board sits ~+26 mV high, i.e. ~+142 mA raw).
+ * Calibrated 2026-11-02 against the PSU: bench-on 167 mA reads ~173. */
+static const int16_t  AM_ZERO  = 142;
 static const int16_t  AM_DELTA = 20;      /* mA step for immediate emission */
 static uint32_t       am_last_emit_ms;
 static int16_t        am_last_ma;
@@ -488,7 +492,7 @@ void loop() {
     uint32_t acc = 0;
     for (int k = 0; k < 32; k++) acc += analogRead(15);
     const float mv15 = (acc / 32.0f) * 3300.0f / 1023.0f;
-    const int16_t ma = (int16_t)((((mv15 / AM_DIV) - 2500.0f) / AM_SENS)) - AM_ZERO;
+    const int16_t ma = (int16_t)((2500.0f - (mv15 / AM_DIV)) / AM_SENS) + AM_ZERO;
     if (am_last_emit_ms == 0u ||
         (ma > am_last_ma + AM_DELTA || ma + AM_DELTA < am_last_ma) ||
         now - am_last_emit_ms >= 100u) {
