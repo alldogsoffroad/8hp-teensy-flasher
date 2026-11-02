@@ -70,10 +70,21 @@ static bool hail_pulse[2];     /* G mode: 300 ms storm / 300 ms silence so starv
  * timeline as CAN frames, so feed dips/pulses correlate with the boot-session opening.
  * Divider: 33k (feed->pin) + 10k (pin->GND), ratio 4.3. 'A0' stops it. */
 static bool power_mon = false;
-static const float    PWR_RATIO = 4.3f;
+static const float    PWR_RATIO = 4.9f;   /* divider re-cut 2026-10-31 (9420a8d) */
 static const uint16_t PWR_DELTA = 250;    /* emit when feed moves > 250 mV */
 static uint32_t       pwr_last_emit_ms;
 static uint16_t       pwr_last_mv;
+/* Bench ammeter (2026-11-02): ACS712 5 A module in the TCU supply lead (IP+ from
+ * the PSU, IP- to the harness); OUT through a 10k/15k divider to pin 15 (A1).
+ * 185 mV/A centred at 2.5 V -> after the 0.6 divider, 1.5 V at zero current.
+ * 32-sample averaging per emission; "A<milliamps>" on the FIRST port, same
+ * threshold/heartbeat scheme as the P feed line. */
+static const float    AM_DIV  = 0.6f;
+static const float    AM_SENS = 0.185f;   /* volts per amp */
+static const int16_t  AM_ZERO  = 118;     /* module offset, measured 2026-11-02 */
+static const int16_t  AM_DELTA = 20;      /* mA step for immediate emission */
+static uint32_t       am_last_emit_ms;
+static int16_t        am_last_ma;
 
 /* S9 = 666.667 kbit/s, the Bosch user boot MAT plant-entry rate (spec 17): 24 MHz / (2 x 18 tq).
  * Given as 666666: FlexCAN_T4 searches divisors with integer division and rejects 666667. */
@@ -473,6 +484,19 @@ void loop() {
       ch[0].port->write(pbuf, n);
       pwr_last_mv = mv;
       pwr_last_emit_ms = now;
+    }
+    uint32_t acc = 0;
+    for (int k = 0; k < 32; k++) acc += analogRead(15);
+    const float mv15 = (acc / 32.0f) * 3300.0f / 1023.0f;
+    const int16_t ma = (int16_t)((((mv15 / AM_DIV) - 2500.0f) / AM_SENS)) - AM_ZERO;
+    if (am_last_emit_ms == 0u ||
+        (ma > am_last_ma + AM_DELTA || ma + AM_DELTA < am_last_ma) ||
+        now - am_last_emit_ms >= 100u) {
+      char abuf[12];
+      int n = snprintf(abuf, sizeof abuf, "A%d\r", ma);
+      ch[0].port->write(abuf, n);
+      am_last_ma = ma;
+      am_last_emit_ms = now;
     }
   }
   if (millis() - led_ms > 500u) {     /* heartbeat LED: fast blink when a channel is open */

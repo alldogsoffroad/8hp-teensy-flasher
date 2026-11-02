@@ -176,3 +176,19 @@ Mechanics that matter:
 | Code flash (user MAT) | `0x004000–0x27FFFF` (2.5 MB total) |
 | Data flash | `0x80100000–0x8011FFFF` (128 KB, 8 KB blocks) |
 | FCU program/erase window | `0x80800000 + flash offset` |
+
+## 7. Bench telemetry lines (unsolicited, first port)
+
+With power monitoring enabled (`A1`; `A0` stops), the bridge emits on its
+FIRST serial port, interleaved with slcan traffic:
+
+- `P<feed millivolts>\r` — the pin-14 divider reading of the bench feed
+  (33k/10k, ratio 4.3; re-cut 4.9 2026-11-02), on change > 250 mV or a
+  50 ms heartbeat.
+- `A<load milliamps>\r` — the ACS712 5 A module in the TCU supply lead
+  (bench + → IP+, IP− → TCU +; OUT through a 10k/15k divider to pin 15).
+  185 mV/A centred 2.5 V; 32-sample averaging; zero offset −118 mA baked
+  in (measured 2026-11-02, expect a few mA thermal drift); emitted on
+  change > 20 mA or a 100 ms heartbeat. Single-sample noise σ ≈ 10 mA —
+  average host-side for fine readings; rail transitions (> 100 mA) are
+  immediate.
