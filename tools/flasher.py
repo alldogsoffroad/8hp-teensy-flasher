@@ -188,12 +188,23 @@ class Flasher:
             die("RequestDownload refused")
         seq = 1
         for off in range(0, len(img), 0x100):
-            r = self._plant.request(bytes([0x36, seq]) + img[off:off + 0x100],
-                                    timeout=15)
-            if not r or r[0] != 0x76:
+            for attempt in range(3):        # bus frames drop; a rejected
+                r = self._plant.request(    # block is retryable in place
+                    bytes([0x36, seq]) + img[off:off + 0x100], timeout=15)
+                if r and r[0] == 0x76:
+                    break
+                log(f"  block {seq} rejected (attempt {attempt + 1})")
+                time.sleep(1.0)
+            else:
                 die(f"block {seq} rejected")
             seq += 1
         self._plant.request(b"\x37", timeout=15)
+
+    def launch_engine(self):
+        """Run hook.  May be deferred: the engine idles until launched, so
+        the caller can age the boot before the 500k session is born (the
+        ARM is served only on an aged boot; install_image.py depends on
+        this split)."""
         for i in range(400):
             r = self._plant.request(bytes.fromhex("3101FF01"), timeout=5)
             if r and r[:4] == bytes([0x71, 0x01, 0xFF, 0x01]):
@@ -211,13 +222,55 @@ class Flasher:
         self.sess = Session(self.b, self.n, self.engine)
         self.sess.handshake()
 
-    def prime(self):
-        log(f"priming the write context ({len(PRIMING)} commands) ...")
-        for hexframe, nrx in PRIMING:
+    def prime(self, reduced=False):
+        """Replay the priming tx script with drain-mode rx handling.
+
+        Positional replay (read exactly nrx replies) stalls: multi-frame
+        bursts drop frames in the host receive path, the replay waits for
+        a reply that never comes, the next tx fires mid-protocol and the
+        engine goes silent (bench 2026-11-02, 4/4 stalls).  Drain instead
+        where replies are expected.  BUT nrx == 0 means the transcript
+        had no rx run between this tx and the next - consecutive tx
+        frames are FF/CF halves of one multi-frame message and MUST go
+        out back-to-back: a quiet-wait inside a message times the FF out
+        on the engine side, the CF arrives as an orphan and the engine
+        goes silent for good (bench 2026-11-03, run 4: 0 replies from
+        the first FF/CF pair on).
+
+        reduced=True drops the 0x13 identify-burst commands.  The full
+        table only completes against the flash it was captured from: its
+        identify read at 0x80100000 reads the unit's ID block, and if
+        that region is blank the engine truncates the burst mid-stream
+        and one lost frame kills the wire-order cipher (bench 2026-11-03;
+        the read cannot be retargeted - 1/17 at a substituted address).
+        The attestations + verify ladder alone prime a writable session
+        (bench-proven: FWE accepted at boot+149 with the reduced form)."""
+        table = PRIMING
+        if reduced:
+            table = [(h, n) for h, n in PRIMING
+                     if bytes.fromhex(h)[0] != 0x13]
+            log(f"priming (reduced: {len(table)}/{len(PRIMING)} commands, "
+                "identify bursts dropped - content-dependent)")
+        else:
+            log(f"priming the write context ({len(PRIMING)} commands, drain mode) ...")
+        warned = 0
+        for i, (hexframe, nrx) in enumerate(table):
             self.sess.send(bytes.fromhex(hexframe))
-            for _ in range(nrx):
-                if self.sess.recv(2.5) is None:
-                    die("priming stalled")
+            if nrx == 0:
+                continue                      # FF/CF pair: no wait inside
+            got = 0
+            while True:
+                rep = self.sess.recv(timeout=2.5 if got == 0 else 0.4)
+                if rep is None:
+                    break
+                if rep[0] == 0x60 and rep[1] & 0x80:   # busy pacing
+                    log("  (busy-wait)")
+                    time.sleep(2.5)
+                    continue
+                got += 1
+            if got != nrx and warned < 8:
+                log(f"  (cmd {i}: rx burst {got}/{nrx})")
+                warned += 1
         log("context primed")
 
     # ------------------------------------------------------------- ops
@@ -274,6 +327,7 @@ def main():
     f.plant_session()
     f.auth()
     f.download_engine()
+    f.launch_engine()
     f.open_session()
 
     if args.cmd == "status":

@@ -8,9 +8,10 @@ for the TCU's reply on 0x1FFFAFFE (then exits so the flasher can take
 the ports).
 
 USAGE:
-  1. Start this tool.
+  1. Start this tool (LED goes fast - armed).
   2. Power the TCU: OFF, hold ~30 s (rails must fully discharge), ON.
-  3. It prints "TCU FRAME" when the session opens, then exits.
+  3. It prints "TCU FRAME" when the session opens, sets the LED slow
+     (handed off), and exits so the flasher takes the ports.
 
 Mode selection (first matching frame wins):
   --mode 5   "PlantCan" entry (flash programming)   [default]
@@ -73,6 +74,7 @@ def main():
           flush=True)
     t_end = time.time() + WINDOW_S
     next_slot = time.time()
+    ser[PORTS[0]].write(b"B1\r")     # LED fast: armed - the power-on signal
     while time.time() < t_end and not seen.is_set():
         now = time.time()
         if now >= next_slot:
@@ -83,6 +85,7 @@ def main():
         time.sleep(0.002)
 
     stop.set()
+    ser[PORTS[0]].write(b"B0\r")     # LED slow: handed off (or window over)
     for p in PORTS:
         ser[p].write(b"C\r")
         ser[p].close()

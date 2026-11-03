@@ -174,16 +174,25 @@ FCU_BASE = 0x80800000
 
 
 def compose_erase(block):
+    """op-20 erase.  CF byte 5 is the FENTRY key: the engine writes
+    FENTRYR := 0xAA00|CF[5] right before the FCU erase command, so the
+    key must select the target's MAT (1 below 0x100000, 2 for MAT1 --
+    key 1 on a MAT1 block answers FCU ILGL).  The CRC covers the key."""
+    fentry = 1 if block < 0x100000 else 2
     fcu = (FCU_BASE + block).to_bytes(4, "big")
-    cf = fcu + bytes([0x00, 0x01, 0x00, 0x00])
+    cf = fcu + bytes([0x00, fentry, 0x00, 0x00])
     ff = ck7(bytes([0x20, 0x10, 0x06, 0x00])
-             + crc16(fcu + bytes([0x00, 0x01])).to_bytes(2, "big") + b"\x00")
+             + crc16(fcu + bytes([0x00, fentry])).to_bytes(2, "big") + b"\x00")
     return ff, cf
 
 
-def compose_arm(offset):
+def compose_arm(offset, key=None):
+    """op-11 ARM.  CF[7] is the ARM's FENTRY key (same selection rule as
+    the erase when not given).  The CRC covers the full CF."""
+    if key is None:
+        key = 1 if offset < 0x100000 else 2
     fcu = (FCU_BASE + offset).to_bytes(4, "big")
-    cf = fcu + bytes([0x00, 0x01, 0xE8, 0x01])
+    cf = fcu + bytes([0x00, 0x01, 0xE8, key])
     ff = ck7(bytes([0x11, 0x10, 0x08, 0x00])
              + crc16(cf).to_bytes(2, "big") + b"\x00")
     return ff, cf
