@@ -70,6 +70,7 @@ static bool hail_pulse[2];     /* G mode: 300 ms storm / 300 ms silence so starv
  * timeline as CAN frames, so feed dips/pulses correlate with the boot-session opening.
  * Divider: 33k (feed->pin) + 10k (pin->GND), ratio 4.3. 'A0' stops it. */
 static bool power_mon = false;
+static bool storm_fast = false;          /* B1/B0: LED fast-blink while the storm is active */
 static const float    PWR_RATIO = 4.9f;   /* divider re-cut 2026-10-31 (9420a8d) */
 static const uint16_t PWR_DELTA = 250;    /* emit when feed moves > 250 mV */
 static uint32_t       pwr_last_emit_ms;
@@ -254,6 +255,10 @@ static void handle_line(int i) {
     case 'A':
       power_mon = s[1] == '1';
       pwr_last_emit_ms = 0;                 /* force a heartbeat line immediately */
+      ok(i);
+      break;
+    case 'B':                                /* LED storm indicator: B1 fast, B0 slow (global) */
+      storm_fast = s[1] == '1';
       ok(i);
       break;
     case 't': cmd_send(i, s, false, false); break;
@@ -506,8 +511,11 @@ void loop() {
       am_last_emit_ms = now;
     }
   }
-  if (millis() - led_ms > 500u) {     /* heartbeat LED: fast blink when a channel is open */
+  /* heartbeat LED: B1 = storm active (fast), otherwise slow standby blink —
+     the bench can read the storm state at a glance (2026-11-03) */
+  uint32_t led_iv = storm_fast ? 100u : 700u;
+  if (millis() - led_ms > led_iv) {
     led_ms = millis();
-    digitalWriteFast(LED_BUILTIN, (ch[0].open || ch[1].open) ? !digitalReadFast(LED_BUILTIN) : LOW);
+    digitalWriteFast(LED_BUILTIN, !digitalReadFast(LED_BUILTIN));
   }
 }
