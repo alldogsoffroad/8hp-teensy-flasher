@@ -42,7 +42,10 @@ Usage:
 The engine image is the session engine captured from YOUR unit (vendor
 code, never distributed here); <img.bin> and <sigs.json> are yours too.
 SAFETY: refuses any plan block outside code flash (0x4000-0x27E000) and
-never touches the boot region.
+never touches the boot region.  The image MUST carry the unit's stock
+identification (tail record 0x17FB70, header +0x74, ident table 0x17FA70
+- spec 06 SS7 4a): without it the boot will not start the application,
+however correct the rest of the image is.
 
 Part of 8hp-teensy-flasher.  License: GPLv3 (see LICENSE).
 """
