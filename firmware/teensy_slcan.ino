@@ -486,6 +486,8 @@ void loop() {
       char pbuf[12];
       int n = snprintf(pbuf, sizeof pbuf, "P%u\r", mv);
       ch[0].port->write(pbuf, n);
+      ch[1].port->write(pbuf, n);   /* both ports: the bridge on ACM0 drops these lines;
+                                      a host logger on ACM1 can still watch (2026-11-02) */
       pwr_last_mv = mv;
       pwr_last_emit_ms = now;
     }
@@ -499,6 +501,7 @@ void loop() {
       char abuf[12];
       int n = snprintf(abuf, sizeof abuf, "A%d\r", ma);
       ch[0].port->write(abuf, n);
+      ch[1].port->write(abuf, n);   /* both ports: live ammeter during bridged runs */
       am_last_ma = ma;
       am_last_emit_ms = now;
     }
